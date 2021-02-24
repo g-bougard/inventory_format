@@ -2760,10 +2760,10 @@
       "default": "Computer",
       "pattern": "^(Computer|Phone|NetworkEquipment|Printer)$"
     },
-    "query": {
+    "action": {
       "type": "string",
-      "default": "INVENTORY",
-      "pattern": "^(INVENTORY|SNMP)$"
+      "default": "inventory",
+      "pattern": "^(inventory|netdiscovery|netinventory)$"
     }
   }
 }
