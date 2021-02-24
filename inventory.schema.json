@@ -2763,7 +2763,7 @@
     "action": {
       "type": "string",
       "default": "inventory",
-      "pattern": "^(inventory|netdiscovery|netinventory)$"
+      "pattern": "^(injector|inventory|netdiscovery|netinventory)$"
     }
   }
 }
