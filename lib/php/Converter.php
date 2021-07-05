@@ -162,9 +162,11 @@ class Converter
     {
         try {
             $schema = Schema::import('file://' . $this->getSchemaPath());
+            $schema->in($json);
         } catch (\Exception $e) {
             $errmsg = "JSON does not validate. Violations:\n";
-            $errmsg .= $e->getMessages();
+            $errmsg .= $e->getMessage();
+            $errmsg .= "\n";
             throw new \RuntimeException($errmsg);
         }
     }
@@ -260,7 +262,10 @@ class Converter
                 'networks/management',
                 'softwares/no_remove',
                 'licenseinfos/trial',
-                'network_ports/trunk'
+                'network_ports/trunk',
+                'cameras/flashunit',
+                'powersupplies/hotreplaceable',
+                'powersupplies/plugged'
             ],
             'integer'   => [
                 'cpus/core',
@@ -298,11 +303,13 @@ class Converter
                 'batteries/real_capacity',
                 'network_ports/ifinerrors',
                 'network_ports/ifinoctets',
+                'network_ports/ifinbytes',
                 'network_ports/ifinternalstatus',
                 'network_ports/ifmtu',
                 'network_ports/ifnumber',
                 'network_ports/ifouterrors',
                 'network_ports/ifoutoctets',
+                'network_ports/ifoutbytes',
                 'network_ports/ifspeed',
                 'network_ports/ifportduplex',
                 'network_ports/ifstatus',
@@ -362,7 +369,9 @@ class Converter
             'powersupplies',
             'videos',
             'remote_mgmt',
-            'cartridges'
+            'cartridges',
+            'cameras',
+            'user'
         ];
 
         foreach ($arrays as $array) {
@@ -373,7 +382,10 @@ class Converter
 
         $sub_arrays = [
             'local_groups/member',
-            'versionprovider/comments'
+            'versionprovider/comments',
+            'cameras/resolution',
+            'cameras/imageformats',
+            'cameras/resolutionvideo'
         ];
 
         foreach ($sub_arrays as $array) {
@@ -430,8 +442,8 @@ class Converter
             }
         }
 
-        $ns_pattern = '/^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2} [0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?$/';
         //processes dates misses seconds!
+        $ns_pattern = '/^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2} [0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2})?$/';
         if (isset($data['content']['processes'])) {
             foreach ($data['content']['processes'] as &$process) {
                 if (isset($process['started'])) {
@@ -454,13 +466,18 @@ class Converter
         //rename installdate to install_date; change date format
         if (isset($data['content']['softwares'])) {
             foreach ($data['content']['softwares'] as &$soft) {
+                $convertedDate = $this->convertDate($soft['install_date'] ?? '');
                 if (isset($soft['installdate'])) {
-                    $soft['install_date'] = $soft['installdate'];
+                    if ($convertedDate === null) {
+                        $convertedDate = $this->convertDate($soft['installdate']);
+                    }
                     unset($soft['installdate']);
-                    $soft['install_date'] = $this->convertDate(
-                        $soft['install_date'],
-                        'Y-m-d'
-                    );
+                }
+
+                if ($convertedDate !== null) {
+                    $soft['install_date'] = $convertedDate;
+                } else {
+                    unset($soft['install_date']);
                 }
             }
         }
@@ -468,52 +485,84 @@ class Converter
         //change dates formats
         if (isset($data['content']['batteries'])) {
             foreach ($data['content']['batteries'] as &$battery) {
-                if (isset($battery['date'])) {
-                    $battery['date'] = $this->convertDate(
-                        $battery['date'],
-                        'Y-m-d'
-                    );
+                if (($convertedDate = $this->convertDate($battery['date'] ?? '')) !== null) {
+                    $battery['date'] = $convertedDate;
+                } else {
+                    unset($battery['date']);
                 }
             }
         }
 
         if (isset($data['content']['bios'])) {
-            if (isset($data['content']['bios']['bdate'])) {
-                $data['content']['bios']['bdate'] = $this->convertDate(
-                    $data['content']['bios']['bdate'],
-                    'Y-m-d'
-                );
+            if (($convertedDate = $this->convertDate($data['content']['bios']['bdate'] ?? '')) !== null) {
+                $data['content']['bios']['bdate'] = $convertedDate;
+            } else {
+                unset($data['content']['bios']['bdate']);
             }
         }
 
         if (isset($data['content']['antivirus'])) {
             foreach ($data['content']['antivirus'] as &$av) {
-                if (isset($av['expiration'])) {
-                    $av['expiration'] = $this->convertDate(
-                        $av['expiration'],
-                        'Y-m-d'
-                    );
+                //expiration date format
+                if (($convertedDate = $this->convertDate($av['expiration'] ?? '')) !== null) {
+                    $av['expiration'] = $convertedDate;
+                } else {
+                    unset($av['expiration']);
+                }
+
+                //old properties
+                if (isset($av['datfilecreation'])) {
+                    if (!isset($av['base_creation'])) {
+                        $av['base_creation'] = $av['datfilecreation'];
+                    }
+                    unset($av['datfilecreation']);
+                }
+
+                if (isset($av['datfileversion'])) {
+                    if (!isset($av['base_version'])) {
+                        $av['base_version'] = $av['datfileversion'];
+                    }
+                    unset($av['datfileversion']);
+                }
+
+                if (isset($av['engineversion64'])) {
+                    if (!isset($av['base_version'])) {
+                        $av['base_version'] = $av['engineversion64'];
+                    }
+                    unset($av['engineversion64']);
+                }
+
+                if (isset($av['engineversion32'])) {
+                    if (!isset($av['base_version'])) {
+                        $av['base_version'] = $av['engineversion32'];
+                    }
+                    unset($av['engineversion32']);
                 }
             }
         }
 
         if (isset($data['content']['firmwares'])) {
             foreach ($data['content']['firmwares'] as &$fw) {
-                if (isset($fw['date'])) {
-                    $fw['date'] = $this->convertDate(
-                        $fw['date'],
-                        'Y-m-d'
-                    );
+                if (($convertedDate = $this->convertDate($fw['date'] ?? '')) !== null) {
+                    $fw['date'] = $convertedDate;
+                } else {
+                    unset($fw['date']);
                 }
             }
         }
 
-
-        //storages serial-ata with several cases
         if (isset($data['content']['storages'])) {
             foreach ($data['content']['storages'] as &$storage) {
+                //storages serial-ata with several cases
                 if (isset($storage['interface']) && strtolower($storage['interface']) == 'serial-ata') {
                     $storage['interface'] = 'SATA';
+                }
+                //rename serialnumber to serial
+                if (isset($storage['serialnumber'])) {
+                    if (!isset($storage['serial'])) {
+                        $storage['serial'] = $storage['serialnumber'];
+                    }
+                    unset($storage['serialnumber']);
                 }
             }
         }
@@ -578,8 +627,11 @@ class Converter
             }
         }
 
-        if (!isset($data['content']['versionclient']) && isset($data['content']['hardware']['versionclient'])) {
-            $data['content']['versionclient'] = $data['content']['hardware']['versionclient'];
+        if (isset($data['content']['hardware']['versionclient'])) {
+            if (!isset($data['content']['versionclient'])) {
+                $data['content']['versionclient'] = $data['content']['hardware']['versionclient'];
+            }
+            unset($data['content']['hardware']['versionclient']);
         }
 
         if (isset($data['content']['accountinfo'])) {
@@ -591,12 +643,36 @@ class Converter
             }
         }
 
-        //missing hour in ntimezone offset
+        //missing hour in timezone offset
         if (isset($data['content']['operatingsystem']) && isset($data['content']['operatingsystem']['timezone'])) {
-            if (preg_match('/^[+-][0-9]{2}$/', $data['content']['operatingsystem']['timezone']['offset'])) {
-                $data['content']['operatingsystem']['timezone']['offset'] .= '00';
+            $timezone = &$data['content']['operatingsystem']['timezone'];
+
+            if (preg_match('/^[+-][0-9]{2}$/', $timezone['offset'])) {
+                $timezone['offset'] .= '00';
+            }
+            if (!isset($timezone['name'])) {
+                $timezone['name'] = $timezone['offset'];
             }
         }
+
+        if (isset($data['content']['operatingsystem'])) {
+            $os = &$data['content']['operatingsystem'];
+            if (($convertedDate = $this->convertDate($os['install_date'] ?? '')) !== null) {
+                $os['install_date'] = $convertedDate;
+            } else {
+                unset($os['install_date']);
+            }
+        }
+
+        if (isset($data['content']['operatingsystem'])) {
+            $os = &$data['content']['operatingsystem'];
+            if (($convertedDate = $this->convertDate($os['install_date'] ?? '')) !== null) {
+                $os['install_date'] = $convertedDate;
+            } else {
+                unset($os['install_date']);
+            }
+        }
+
 
         //Fix batteries capacities & voltages
         if (isset($data['content']['batteries'])) {
@@ -620,11 +696,189 @@ class Converter
             }
         }
 
+        //type on ports is required
+        if (isset($data['content']['ports'])) {
+            foreach ($data['content']['ports'] as &$port) {
+                if (!isset($port['type'])) {
+                    $port['type'] = 'None';
+                }
+            }
+        }
+
         if (!isset($data['itemtype'])) {
             //set a default
             $data['itemtype'] = 'Computer';
         }
 
+        //rename macaddr to mac for networks
+        if (isset($data['content']['networks'])) {
+            foreach ($data['content']['networks'] as &$network) {
+                if (isset($network['macaddr'])) {
+                    if (!isset($network['mac'])) {
+                        $network['mac'] = $network['macaddr'];
+                    }
+                    unset($network['macaddr']);
+                }
+            }
+        }
+
+        //no longer existing
+        $drops = [
+            'registry',
+            'userslist',
+            'mib_applications',
+            'mib_components',
+            'jvms'
+        ];
+
+        $drops_objects = [
+            'hardware' => [
+                'archname',
+                'osname',
+                'checksum',
+                'etime',
+                'ipaddr',
+                'osversion',
+                'processorn',
+                'processors',
+                'processort',
+                'userid',
+                'lastdate',
+                'userdomain'
+            ],
+            'operatingsystem' => [
+                'boot_date'
+            ],
+            'bios' => [
+                'type'
+            ],
+            'network_device' => [
+                'comments',
+                'id'
+            ]
+        ];
+
+        $drops_arrays = [
+            'licenseinfos' => [
+                'oem'
+            ],
+            'drives' => [
+                'numfiles'
+            ],
+            'inputs' => [
+                'pointtype'
+            ],
+            'networks' => [
+                'typemib'
+            ],
+            'softwares' => [
+                'filename',
+                'source',
+                'language',
+                'is64bit',
+                'releasetype'
+            ],
+            'controllers' => [
+                'description',
+                'version'
+            ],
+            'slots' => [
+                'shared'
+            ],
+            'physical_volumes' => [
+                'pv_name'
+            ],
+            'videos' => [
+                'pciid'
+            ],
+            'cpus' => [
+                'type'
+            ],
+            'sensors' => [
+                'power'
+            ],
+            'batteries' => [
+                'temperature',
+                'level',
+                'health',
+                'status'
+            ],
+            'simcards' => [
+                'serial',
+                'subscriber_id'
+            ],
+            'network_components' => [
+                'ip',
+                'mac'
+            ]
+        ];
+
+        foreach ($drops as $drop) {
+            unset($data['content'][$drop]);
+        }
+
+        foreach ($drops_objects as $parent => $children) {
+            foreach ($children as $child) {
+                unset($data['content'][$parent][$child]);
+            }
+        }
+
+        foreach ($drops_arrays as $parent => $children) {
+            if (!isset($data['content'][$parent])) {
+                continue;
+            }
+            foreach ($data['content'][$parent] as &$entry) {
+                foreach ($children as $child) {
+                    unset($entry[$child]);
+                }
+            }
+        }
+
+        unset(
+            $data['uuid'],
+            $data['user'],
+            $data['userdefinedproperties'],
+            $data['agentsname'],
+            $data['machineid'],
+            $data['cfkey'],
+            $data['policies'],
+            $data['hostname'],
+            $data['processors'],
+            $data['policy_server']
+        );
+
+        //pciid to vendorid:productid
+        $pciids_nodes = [
+            'controllers'
+        ];
+
+        foreach ($pciids_nodes as $pciid_node) {
+            if (isset($data['content'][$pciid_node])) {
+                foreach ($data['content'][$pciid_node] as &$node) {
+                    $this->checkPciid($node);
+                }
+            }
+        }
+
+        //handle user node on some phone inventories
+        if (isset($data['content']['user'])) {
+            if (!isset($data['content']['users'])) {
+                $data['content']['users'] = $data['content']['user'];
+            }
+            unset($data['content']['user']);
+        }
+
+        //wrong name
+        if (isset($data['content']['simcards'])) {
+            foreach ($data['content']['simcards'] as &$simcard) {
+                if (isset($simcard['line_number'])) {
+                    if (!isset($simcard['phone_number'])) {
+                        $simcard['phone_number'] = $simcard['line_number'];
+                    }
+                    unset($simcard['line_number']);
+                }
+            }
+        }
         return $data;
     }
 
@@ -738,10 +992,15 @@ class Converter
      * @param string $value  Current value
      * @param string $format Format for output
      *
-     * @return string
+     * @return string|null
      */
-    public function convertDate($value, $format)
+    public function convertDate($value, $format = 'Y-m-d'): ?string
     {
+        $nullables = ['n/a', 'boot_time'];
+        if (empty($value) || isset(array_flip($nullables)[strtolower($value)])) {
+            return null;
+        }
+
         $formats = [
             'D M d H:i:s Y', //Thu Mar 14 15:05:41 2013
             'd/m/Y H:i:s',
@@ -751,6 +1010,7 @@ class Converter
             'd/m/Y',
             'm/d/Y',
             'Y-m-d',
+            'd.m.Y',
             'Ymd'
         ];
         try {
@@ -963,27 +1223,40 @@ class Converter
                             $netport['lldp'] = (bool)$netport['connections']['cdp'];
                             unset($netport['connections']['cdp']);
                         }
+
+                        //rename ifinoctets and ifoutoctets
+                        if (isset($netport['ifinoctets'])) {
+                            if (!isset($netport['ifinbytes'])) {
+                                $netport['ifinbytes'] = $netport['ifinoctets'];
+                            }
+                            unset($netport['ifinoctets']);
+                        }
+                        if (isset($netport['ifoutoctets'])) {
+                            if (!isset($netport['ifoutbytes'])) {
+                                $netport['ifoutbytes'] = $netport['ifoutoctets'];
+                            }
+                            unset($netport['ifoutoctets']);
+                        }
+
                         if (isset($netport['connections'])) {
                             $netport['connections'] = isset($netport['connections']['connection'][0]) ?
                                 $netport['connections']['connection'] :
                                 [$netport['connections']['connection']];
-                            //rename ifinoctets and ifoutoctets
-                            foreach ($netport['connections'] as &$connection) {
-                                if (isset($connection['ifinoctets'])) {
-                                    $connection['ifinbytes'] = $connection['ifinoctets'];
-                                    unset($connection['ifinoctets']);
-                                }
-                                if (isset($connection['ifoutoctets'])) {
-                                    $connection['ifoutbytes'] = $connection['ifoutoctets'];
-                                    unset($connection['ifoutoctets']);
-                                }
-                            }
                         }
                         if (isset($netport['aggregate'])) {
                             $netport['aggregate'] = isset($netport['aggregate']['port'][0]) ?
                                 $netport['aggregate']['port'] :
                                 [$netport['aggregate']['port']];
                             $netport['aggregate'] = array_map('intval', $netport['aggregate']);
+                        }
+
+                        if (isset($netport['ip'])) {
+                            if (!isset($netport['ips'])) {
+                                $netport['ips'] = is_array($netport['ip']) ?
+                                    $netport['ip'] :
+                                    [$netport['ip']];
+                            }
+                            unset($netport['ip']);
                         }
 
                         if (isset($netport['ips'])) {
@@ -1015,7 +1288,29 @@ class Converter
 
                     break;
                 case 'components':
-                    $data['content']['network_components'] = $device['components']['component'];
+                    $data['content']['network_components'] = is_array($device['components']['component']) ?
+                        $device['components']['component'] :
+                        [$device['components']['component']];
+
+                    foreach ($data['content']['network_components'] as &$netcomp) {
+                        if (isset($netcomp['containedinindex'])) {
+                            if (!isset($netcomp['contained_index'])) {
+                                $netcomp['contained_index'] = (int)$netcomp['containedinindex'];
+                            }
+                            unset($netcomp['containedinindex']);
+                        }
+
+                        if (isset($netcomp['revision'])) {
+                            unset($netcomp['revision']);
+                        }
+
+                        if (isset($netcomp['version'])) {
+                            if (!isset($netcomp['firmware'])) {
+                                $netcomp['firmware'] = $netcomp['version'];
+                            }
+                            unset($netcomp['version']);
+                        }
+                    }
                     break;
                 case "cartridges":
                 case "pagecounters":
@@ -1032,5 +1327,28 @@ class Converter
 
         unset($data['content']['device']);
         return $data;
+    }
+
+    /**
+     * Explode old pciid to vendorid:productid
+     *
+     * @param array $data Node data
+     *
+     * @return void
+     */
+    private function checkPciid(array &$data): void
+    {
+
+        if (isset($data['pciid'])) {
+            list($vid, $pid) = explode(':', $data['pciid']);
+            if (!isset($data['vendorid']) && $vid) {
+                $data['vendorid'] = $vid;
+            }
+            if (!isset($data['productid']) && $pid) {
+                $data['productid'] = $pid;
+            }
+
+            unset($data['pciid']);
+        }
     }
 }

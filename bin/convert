@@ -32,14 +32,25 @@ if ($json_path !== null && parse_url($json_path, PHP_URL_SCHEME) == null) {
 }
 
 if (!file_exists($xml_path)) {
-    echo "Source file does not exists!\n";
+    echo sprintf(
+        "Source file '%s' does not exists!\n",
+        $xml_path
+    );
     die(1);
 }
 
 try {
     $converter = new Glpi\Inventory\Converter;
-    $json = $converter->convert(file_get_contents($xml_path));
-    $converter->validate($json);
+
+    $xml_str = file_get_contents($xml_path);
+    $xml = simplexml_load_string($xml_str, 'SimpleXMLElement', LIBXML_NOCDATA);
+    if (!$xml) {
+         $xml_errors = libxml_get_errors();
+         throw new \RuntimeException('Invalid XML: ' . print_r($xml_errors, true));
+    }
+
+    $json = $converter->convert($xml->asXML());
+    $converter->validate(json_decode($json));
 
     if ($json_path !== null) {
         file_put_contents($json_path, $json);
